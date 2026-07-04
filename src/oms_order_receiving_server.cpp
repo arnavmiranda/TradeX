@@ -71,7 +71,7 @@ void OrderReceivingServer::acceptLoop() {
 
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
-	inet_pton(AF_INET, "10.53.51.107", &addr.sin_addr);
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	addr.sin_port = htons(port);
 
 	if (::bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
