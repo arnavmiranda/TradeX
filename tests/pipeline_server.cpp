@@ -1,6 +1,6 @@
-#include "../src/oms.h"
-#include "oms_order_receiving_server.h"
-#include "symbol_loader.h"
+#include "../include/oms.h"
+#include "../include/oms_order_receiving_server.h"
+#include "../include/symbol_loader.h"
 
 #include <atomic>
 #include <chrono>

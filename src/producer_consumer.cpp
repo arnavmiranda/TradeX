@@ -84,7 +84,7 @@ public:
         return bookmanager;
     }
 
-    void start_group_thread(int group_no) {
+    void start_group_thread() {
         // Process orders from group queue 
         Order cur_order;
         // std::vector<int64_t> processing_times;
@@ -144,18 +144,19 @@ public:
     void process_buy(Order order) {
 
         OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
+        //if bid cannot be matched, add to order book
         if(book.bestsellprice() > order.price) [[likely]] {
             book.addBuyOrder(order);
             //std::cout<<"Order"<<order.order_id<<"added to order book\n";
             return;
         }
-        
+        //otherwise match with the best sell order until either the buy order is fully filled or there are no more sell orders at or below the buy price
         uint64_t best_price = book.bestsellprice();
         while(order.quantity > 0 && best_price <= order.price) {
             uint32_t price_index = book.priceToIndex(best_price);
             
             if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {
-                
+                //if the sell order has more quantity than the buy order, execute the trade and update the sell order's quantity
                 publish_trade({
                     .trade_id = next_trade_id++,
                     .timestamp_ns = order.timestamp,
@@ -171,7 +172,7 @@ public:
                 book.modifyQuantity(best_price, new_quantity);
                 return;
                 
-            } else {
+            } else { //if the sell order has less than or equal quantity than the buy order, execute the trade and remove the sell order from the order book
                 uint32_t traded_quantity = book.getpricelevels(price_index).gethead()->order.quantity;
                 publish_trade({
                     .trade_id = next_trade_id++,
@@ -182,14 +183,14 @@ public:
                     .symbol_id = order.symbol_id,
                     .quantity = traded_quantity
                 });
-                shared_ltp_ptr->last_price[order.symbol_id & SYMBOL_MASK] = best_price;
+                shared_ltp_ptr->last_price[order.symbol_id & SYMBOL_MASK] = best_price; //can't we just do this once at the end? (with the final value of best_price, idk maybe it doesnt matter)
                 
                 order.quantity -= traded_quantity;
                 book.removeSellOrder(best_price);
                 best_price = book.bestsellprice();
             }
         }
-        if(order.quantity > 0) {
+        if(order.quantity > 0) { //what remains could not be matched, so its stored in the order book for future matching
             book.addBuyOrder(order);
             //std::cout<<"Order"<<order.order_id<<"added to order book\n";
         }
@@ -248,10 +249,96 @@ public:
         }
     }
 
+    void process_market_buy(Order order) {
+        OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
+        uint64_t best_price = book.bestsellprice();
+        while(order.quantity > 0 && book.getTotalSellQty() > 0) {
+            uint32_t price_index = book.priceToIndex(best_price);
+            
+            if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {
+                publish_trade({
+                    .trade_id = next_trade_id++,
+                    .timestamp_ns = order.timestamp,
+                    .price = best_price,
+                    .buy_order_id = order.client_order_id,
+                    .sell_order_id = book.getpricelevels(price_index).gethead()->order.client_order_id,
+                    .symbol_id = order.symbol_id,
+                    .quantity = order.quantity
+                });
+                shared_ltp_ptr->last_price[order.symbol_id & SYMBOL_MASK] = best_price;
+
+                uint32_t new_quantity = book.getpricelevels(price_index).gethead()->order.quantity - order.quantity;
+                book.modifyQuantity(best_price, new_quantity);
+                return;
+                
+            } else {
+                uint32_t traded_quantity = book.getpricelevels(price_index).gethead()->order.quantity;
+                publish_trade({
+                    .trade_id = next_trade_id++,
+                    .timestamp_ns = order.timestamp,
+                    .price = best_price,
+                    .buy_order_id = order.client_order_id,
+                    .sell_order_id = book.getpricelevels(price_index).gethead()->order.client_order_id,
+                    .symbol_id = order.symbol_id,
+                    .quantity = traded_quantity
+                });
+                shared_ltp_ptr->last_price[order.symbol_id & SYMBOL_MASK] = best_price;
+                
+                order.quantity -= traded_quantity;
+                book.removeSellOrder(best_price);
+                best_price = book.bestsellprice();
+            }
+        }
+    }
+
+    void process_market_sell(Order order) {
+        OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
+        uint64_t best_price = book.bestbuyprice();
+        while(order.quantity > 0 && best_price && book.getTotalBuyQty() > 0) {
+            uint32_t price_index = book.priceToIndex(best_price);
+            
+            if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {
+                publish_trade({
+                    .trade_id = next_trade_id++,
+                    .timestamp_ns = order.timestamp,
+                    .price = best_price,
+                    .buy_order_id = book.getpricelevels(price_index).gethead()->order.client_order_id,
+                    .sell_order_id = order.client_order_id,
+                    .symbol_id = order.symbol_id,
+                    .quantity = order.quantity
+                });
+                shared_ltp_ptr->last_price[order.symbol_id & SYMBOL_MASK] = best_price;
+
+                uint32_t new_quantity = book.getpricelevels(price_index).gethead()->order.quantity - order.quantity;
+                book.modifyQuantity(best_price, new_quantity);
+                return;
+                
+            } else {
+                uint32_t traded_quantity = book.getpricelevels(price_index).gethead()->order.quantity;
+                publish_trade({
+                    .trade_id = next_trade_id++,
+                    .timestamp_ns = order.timestamp,
+                    .price = best_price,
+                    .buy_order_id = book.getpricelevels(price_index).gethead()->order.client_order_id,
+                    .sell_order_id = order.client_order_id,
+                    .symbol_id = order.symbol_id,
+                    .quantity = traded_quantity
+                });
+                shared_ltp_ptr->last_price[order.symbol_id & SYMBOL_MASK] = best_price;
+                
+                order.quantity -= traded_quantity;
+                book.removeBuyOrder(best_price);
+                best_price = book.bestbuyprice();
+            }
+        }
+    }
+
     void process_order(const Order& order) {
 
         OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
 
+        //this is some weird workaround to convert limit orders into market orders by setting them outside the range i think
+        /*
         if (!book.isPriceValid(order.price)) {
             if(order.type == matching_engine::OrderType::BUY && order.quantity > book.getTotalSellQty()){
                 std::cout<<" Order "<<order.order_id<<" cancelled\n";
@@ -280,11 +367,29 @@ public:
                 return;
             }
         }
+        */
+
+        if (order.execution_type == matching_engine::OrderExecutionType::MARKET) {
+            if (order.type == OrderType::BUY) {
+                process_market_buy(order);
+            } else {
+                process_market_sell(order);
+            }
+            return;
+        }
+        if (!book.isPriceValid(order.price)) {
+            std::cout
+                << "Rejected order "
+                << order.order_id
+                << ": invalid price\n";
+            return;
+        }
 
         if(order.type == OrderType::BUY) process_buy(order);
         else process_sell(order);
     }
 
+    // This function is called when a trade is executed to publish the trade details to the trade ring buffer.
     void publish_trade(Trade &&trade) {
             std::cout<<"Trade executed successfully between "<<trade.buy_order_id<<" and "<<trade.sell_order_id<<" at "<<trade.price<<std::endl;
             trade_buffer.add_trade(trade);
@@ -339,12 +444,14 @@ public:
     }
 
     // Used for placing orders
+    //note that this is a separate thread from the group processors, so the spinlock doesn't affect the functionality
+    //again this requires us to have a way to accept and processing incoming orders (start_dispatcher())
     void dispatch_order(const Order& order) {
 
         int group = (order.symbol_id >> SYMBOL_BITS) % GROUP_COUNT;
         if(group >= groups.size()) group = 0;
         //printf("Order %ld recieved\n",order.order_id);
-        while(!groups[group]->enqueue_order(order));
+        while(!groups[group]->enqueue_order(order)); //the enqueue returns false if the queue is full, in which case it keeps trying until it succeeds and returns true and exits.
         
     }
 
@@ -353,7 +460,7 @@ public:
 
         std::vector<std::thread> group_threads;
         for (int i = 0; i < GROUP_COUNT; ++i) {
-            group_threads.emplace_back(&GroupProcessor::start_group_thread, groups[i].get(), i);
+            group_threads.emplace_back(&GroupProcessor::start_group_thread, groups[i].get());
         }
 
         std::cout << "Dispatcher and group threads started" << std::endl;
@@ -370,10 +477,12 @@ public:
     // This can be extended to support dynamic addition of order books as well.
     void initialize_engine(uint64_t* lower_limits, uint64_t* upper_limits)
     {
-        for (uint32_t symbol_id = 0; symbol_id < TOTAL_SYMBOLS; symbol_id++) {
-            lower_limits_cache[symbol_id] = lower_limits[symbol_id];
-            upper_limits_cache[symbol_id] = upper_limits[symbol_id];
-        }
+        // removed this because this was for market orders
+
+        // for (uint32_t symbol_id = 0; symbol_id < TOTAL_SYMBOLS; symbol_id++) {
+        //     lower_limits_cache[symbol_id] = lower_limits[symbol_id];
+        //     upper_limits_cache[symbol_id] = upper_limits[symbol_id];
+        // }
 
         int i = 0;
         for(auto &group : groups) {
@@ -386,14 +495,14 @@ public:
             i++;
         }
     }
+    //again, only used with market orders, so removed
+    // uint64_t getUpperLimit(uint32_t symbol_id) const {
+    //     return upper_limits_cache[symbol_id];
+    // }
 
-    uint64_t getUpperLimit(uint32_t symbol_id) const {
-        return upper_limits_cache[symbol_id];
-    }
-
-    uint64_t getLowerLimit(uint32_t symbol_id) const {
-        return lower_limits_cache[symbol_id];
-    }
+    // uint64_t getLowerLimit(uint32_t symbol_id) const {
+    //     return lower_limits_cache[symbol_id];
+    // }
 
     ~MatchingEngineDispatcher() {
         munmap(shared_ltp_ptr, sizeof(shared_data::MarketState));

@@ -102,14 +102,15 @@ void OrderManagementSystem::listenForClientOrder() {
                 //std::cout<<"OMS recieved market order"<<new_order.client_order_id<<"\n";
                 uint64_t assigned_id = next_oms_order_id.fetch_add(1, std::memory_order_relaxed);
                 out.order_id = assigned_id;
+                out.execution_type = matching_engine::OrderExecutionType::MARKET;
                 out.client_order_id = new_order.client_order_id;
                 out.quantity = new_order.quantity;
                 out.symbol_id = new_order.symbol_id;
                 out.timestamp = getCurrentTimestamp();
                 out.trader_id = new_order.trader_id;
                 out.type = new_order.type;
-                if (new_order.type == matching_engine::OrderType::BUY) out.price = engine->getUpperLimit(new_order.symbol_id)+1;
-                else out.price = engine->getLowerLimit(new_order.symbol_id)-1;
+                // if (new_order.type == matching_engine::OrderType::BUY) out.price = engine->getUpperLimit(new_order.symbol_id)+1; //should not be required anymore
+                // else out.price = engine->getLowerLimit(new_order.symbol_id)-1;
                 sendToEngine(out); 
             }
             //LIMIT
@@ -118,9 +119,10 @@ void OrderManagementSystem::listenForClientOrder() {
                     std::cerr << "Invalid LIMIT order: price = 0\n";
                     continue;
                 }
-                //std::cout<<"OMS recieved limit order"<<new_order.client_order_id<<"\n";
+                //std::cout<<"OMS received limit order"<<new_order.client_order_id<<"\n";
                 uint64_t assigned_id = next_oms_order_id.fetch_add(1, std::memory_order_relaxed);
                 out.order_id = assigned_id;
+                out.execution_type = matching_engine::OrderExecutionType::LIMIT;
                 out.client_order_id = new_order.client_order_id;
                 out.quantity = new_order.quantity;
                 out.symbol_id = new_order.symbol_id;

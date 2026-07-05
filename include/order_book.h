@@ -143,6 +143,7 @@ class PriceQueues {
         }
 };
 
+//something to consider is whether we even require heaps here. the price range is bounded so the cost of iterative scanning is minimal compared to the maintance cost of a heap. could be tested though.
 template <typename T, typename Compare>
 class ReservablePriorityQueue : public std::priority_queue<T, std::vector<T>, Compare> {
 public:
@@ -218,8 +219,9 @@ class OrderBook{
             return price_levels[idx];
         }
 
-        inline auto next_buy_price_available(uint64_t idx) const { return next_buy_price.top() != default_best_buy_price; }
-       
+        // inline auto next_buy_price_available(uint64_t idx) const { return next_buy_price.top() != default_best_buy_price; }
+        //i dont think this is used
+        
         bool addBuyOrder(Order &order){
             int index = priceToIndex(order.price);
             if(index<0 || index>=PRICE_LEVELS) [[unlikely]] return false;
@@ -232,8 +234,8 @@ class OrderBook{
             orderMap[order.order_id] = idx;
             
             price_levels[index].set_heap_entry(true);
-            if(price_level_is_empty && !heap_entry)
-                next_buy_price.push(order.price);
+            if(price_level_is_empty && !heap_entry) //this is because redundant entries in the heap are not removed until they are encountered as top and found empty in bestbuyprice() or bestsellprice()
+                next_buy_price.push(order.price);   //on the other hand, if there was already a heap entry for this price level, we don't need to push it again, as it is already in the heap.
             
             total_buy_qty += order.quantity;
             return true;
@@ -265,6 +267,7 @@ class OrderBook{
             return &(pool.getNode(it->second)->order);
         }
 
+        //removes the order at the head of the price level queue for the given price, if it exists
         bool removeBuyOrder(uint64_t price) {
             int idx = priceToIndex(price);
             if(price_levels[idx].isEmpty()) [[unlikely]] return false;
@@ -294,7 +297,7 @@ class OrderBook{
             if(it == orderMap.end()) [[unlikely]] return false;
 
             int index = it->second;
-            bool removed = price_levels[idx].removeOrder(index);
+            bool removed = price_levels[idx].removeOrder(index); //i dont really know why we're checking this, would it ever be false?
             if(removed){
                 orderMap.erase(id);
                 total_sell_qty -= qty;
@@ -336,6 +339,13 @@ class OrderBook{
 
 };
 
+//note: we're doing static sharding rn so next target should be:
+// a) testing with different group counts to find the optimal number, im not sure why its 2 rn
+// b) integrating a mechanism that actually tracks the order counts and some stats so that we can:
+// c) dynamically shard the order books into groups based on the current load, and reassign them as needed to balance the load across groups.
+// d) This would involve monitoring the number of orders and trades per symbol and adjusting the group assignments accordingly.
+
+//each symbol has its own order book
 class OrderBookManager {
 private:
     std::vector<OrderBook> books;

@@ -11,7 +11,7 @@
 #include "order.h" 
 #include "trade.h"
 #include "trade_ring_buffer.h"
-#include "producer_consumer.cpp"
+#include "../src/producer_consumer.cpp"
 #include "absl/container/flat_hash_map.h"
 
 namespace oms {
