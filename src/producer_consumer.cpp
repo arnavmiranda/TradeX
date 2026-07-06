@@ -189,7 +189,6 @@ public:
                 order.quantity -= traded_quantity;
                 book.removeSellOrder(best_price);
                 best_price = book.bestsellprice();
-                book.decreaseTotalSellQty(traded_quantity);
             }
         }
         if(order.quantity > 0) { //what remains could not be matched, so its stored in the order book for future matching
@@ -244,7 +243,6 @@ public:
                 order.quantity -= traded_quantity;
                 book.removeBuyOrder(best_price);
                 best_price = book.bestbuyprice();
-                book.decreaseTotalBuyQty(traded_quantity);
             }
         }
         if(order.quantity > 0) {
