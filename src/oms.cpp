@@ -104,6 +104,11 @@ void OrderManagementSystem::sendToEngine(const InternalOrder& ord) {
 void OrderManagementSystem::listenForClientOrder() {
     ClientOrder new_order;
 
+    //NOTE: DO NOT USE CONTINUE WITHIN THIS LOOP: IT LEADS TO DEADLOCKS BECAUSE THE LOOP END IS THE ONLY PLACE WHERE TRADE CONSUMERS ARE POLLED.
+    //TRUST ME I SPENT WAY TOO MUCH TIME DEBUGGING THIS. 
+    //  the deadlock is between OMS's thread and the matching engine's group threads. 
+    //  when the trade ring buffer fills up, the engine threads are blocked waiting to push a trade
+    //  but the OMS thread is blocked because the group queues are full and it is not polling the trade ring buffers to consume trades.
     while(!shutdown.load(std::memory_order_relaxed)) {
         InternalOrder out;
         if(incoming_orders.pop(new_order)) {
@@ -111,57 +116,57 @@ void OrderManagementSystem::listenForClientOrder() {
             new_order.symbol_id = find_id(new_order.symbol);
 
             //drop invalid symbol
-            if (new_order.symbol_id == -1) {
-                continue; 
-            }
-            //ICEBERG
-            if (new_order.execution_type == ClientOrderType::ICEBERG) {
-                //std::cout<<"OMS recieved iceberg order"<<new_order.client_order_id<<"\n";
-                active_icebergs[new_order.client_order_id] = new_order;
-                send_slice(new_order.client_order_id);
-            }
-            //STOP LOSS
-            else if (new_order.execution_type == ClientOrderType::STOP_LOSS) {
-                //std::cout<<"OMS recieved SL order"<<new_order.client_order_id<<"\n";
-                registerStopLoss(new_order); 
-            } 
-            //MARKET
-            else if (new_order.execution_type == ClientOrderType::MARKET) {
-                //std::cout<<"OMS recieved market order"<<new_order.client_order_id<<"\n";
-                uint64_t assigned_id = next_oms_order_id.fetch_add(1, std::memory_order_relaxed);
-                out.order_id = assigned_id;
-                out.execution_type = matching_engine::OrderExecutionType::MARKET;
-                out.client_order_id = new_order.client_order_id;
-                out.quantity = new_order.quantity;
-                out.symbol_id = new_order.symbol_id;
-                out.timestamp = getCurrentTimestamp();
-                out.trader_id = new_order.trader_id;
-                out.type = new_order.type;
-                // if (new_order.type == matching_engine::OrderType::BUY) out.price = engine->getUpperLimit(new_order.symbol_id)+1; //should not be required anymore
-                // else out.price = engine->getLowerLimit(new_order.symbol_id)-1;
-                sendToEngine(out); 
-            }
-            //LIMIT
-            else {
-                if(new_order.price == 0) {
-                    std::cerr << "Invalid LIMIT order: price = 0\n";
-                    continue;
+            if (new_order.symbol_id != static_cast<uint32_t>(-1)) {
+                //ICEBERG
+                if (new_order.execution_type == ClientOrderType::ICEBERG) {
+                    //std::cout<<"OMS recieved iceberg order"<<new_order.client_order_id<<"\n";
+                    active_icebergs[new_order.client_order_id] = new_order;
+                    send_slice(new_order.client_order_id);
                 }
-                //std::cout<<"OMS received limit order"<<new_order.client_order_id<<"\n";
-                uint64_t assigned_id = next_oms_order_id.fetch_add(1, std::memory_order_relaxed);
-                out.order_id = assigned_id;
-                out.execution_type = matching_engine::OrderExecutionType::LIMIT;
-                out.client_order_id = new_order.client_order_id;
-                out.quantity = new_order.quantity;
-                out.symbol_id = new_order.symbol_id;
-                out.timestamp = getCurrentTimestamp();
-                out.trader_id = new_order.trader_id;
-                out.type = new_order.type;
-                out.price = new_order.price;
-                sendToEngine(out); 
+                //STOP LOSS
+                else if (new_order.execution_type == ClientOrderType::STOP_LOSS) {
+                    //std::cout<<"OMS recieved SL order"<<new_order.client_order_id<<"\n";
+                    registerStopLoss(new_order); 
+                } 
+                //MARKET
+                else if (new_order.execution_type == ClientOrderType::MARKET) {
+                    //std::cout<<"OMS recieved market order"<<new_order.client_order_id<<"\n";
+                    uint64_t assigned_id = next_oms_order_id.fetch_add(1, std::memory_order_relaxed);
+                    out.order_id = assigned_id;
+                    out.execution_type = matching_engine::OrderExecutionType::MARKET;
+                    out.client_order_id = new_order.client_order_id;
+                    out.quantity = new_order.quantity;
+                    out.symbol_id = new_order.symbol_id;
+                    out.timestamp = getCurrentTimestamp();
+                    out.trader_id = new_order.trader_id;
+                    out.type = new_order.type;
+                    // if (new_order.type == matching_engine::OrderType::BUY) out.price = engine->getUpperLimit(new_order.symbol_id)+1; //should not be required anymore
+                    // else out.price = engine->getLowerLimit(new_order.symbol_id)-1;
+                    sendToEngine(out); 
+                }
+                //LIMIT
+                else {
+                    if(new_order.price != 0) {
+                        //std::cout<<"OMS received limit order"<<new_order.client_order_id<<"\n";
+                        uint64_t assigned_id = next_oms_order_id.fetch_add(1, std::memory_order_relaxed);
+                        out.order_id = assigned_id;
+                        out.execution_type = matching_engine::OrderExecutionType::LIMIT;
+                        out.client_order_id = new_order.client_order_id;
+                        out.quantity = new_order.quantity;
+                        out.symbol_id = new_order.symbol_id;
+                        out.timestamp = getCurrentTimestamp();
+                        out.trader_id = new_order.trader_id;
+                        out.type = new_order.type;
+                        out.price = new_order.price;
+                        sendToEngine(out); 
+                    } else {
+                        std::cerr << "Received limit order with price 0, dropping order. Client Order ID: " << new_order.client_order_id << "\n";
+                    }
+                }
             }
         }
 
+        //we want to make sure this is always polled, otherwise we will deadlock if the ring buffer is full and the matching engine is waiting for us to consume trades
         for (int i = 0; i < GROUP_COUNT; i++) {
             while (trade_consumers[i]->any_new_trade()) {
                 matching_engine::Trade t = trade_consumers[i]->get_trade();

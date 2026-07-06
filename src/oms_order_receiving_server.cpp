@@ -119,7 +119,8 @@ void OrderReceivingServer::clientSession(int client_fd) {
 		bool enqueued = false;
 		while (!shutdown.load(std::memory_order_acquire) && !enqueued) {
 			{
-				std::lock_guard<std::mutex> lock(enqueue_mutex);
+				//i dont think this is necessary anymore since enqueueClientOrder has its own mutex, but im leaving it in for now just in case
+				// std::lock_guard<std::mutex> lock(enqueue_mutex);
 				enqueued = oms.enqueueClientOrder(order);
 			}
 
