@@ -11,7 +11,7 @@ int main() {
     std::vector<std::thread> persisters;
 
     // IMPORTANT: Make sure the TradeProcessor constructor inside trade_processor.cpp 
-    // initializes its internal trBuffer as `(false, i)` so it acts as a Consumer, not a Producer.
+    // initializes its internal trBuffer as (false, i) so it acts as a Consumer, not a Producer.
     for (int i = 0; i < TradeRingBuffer::total_ring_buffer_count; i++) {
         std::string file_name = "file_" + std::to_string(i) + "_";
         arr_tp.emplace_back(new TradeProcessor::TradeProcessor(file_name, i));

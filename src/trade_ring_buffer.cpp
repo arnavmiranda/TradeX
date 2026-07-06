@@ -35,12 +35,31 @@ namespace TradeRingBuffer {
         rb = static_cast<ring_buffer *>(ptr);
     }
 
-    // No explicit check needed for producer because connsumers dont have write access
-    // We must first write data and then update seq to ensure the data is safe to read
+    // // No explicit check needed for producer because connsumers dont have write access
+    // // We must first write data and then update seq to ensure the data is safe to read
+    // bool trade_ring_buffer::add_trade(matching_engine::Trade &recent_trade) {
+    //     item_node & node = rb->ring[index];
+    //     std::memcpy(&node.curr_trade, &recent_trade, sizeof(matching_engine::Trade));
+    //     node.seq.store(next_expected_seq, std::memory_order_release);
+    //     update_index_and_seq();
+    //     return true;
+    // }
+
+
     bool trade_ring_buffer::add_trade(matching_engine::Trade &recent_trade) {
         item_node & node = rb->ring[index];
+        
+        // 1. Mark as 'writing' (odd sequence)
+        uint64_t next_seq = (next_expected_seq << 1); 
+        node.seq.store(next_seq | 1, std::memory_order_release);
+        std::atomic_thread_fence(std::memory_order_release);
+        
+        // 2. Write payload
         std::memcpy(&node.curr_trade, &recent_trade, sizeof(matching_engine::Trade));
-        node.seq.store(next_expected_seq, std::memory_order_release);
+        
+        // 3. Mark as 'done writing' (even sequence)
+        node.seq.store(next_seq + 2, std::memory_order_release);
+        
         update_index_and_seq();
         return true;
     }
@@ -49,7 +68,7 @@ namespace TradeRingBuffer {
     bool trade_ring_buffer::any_new_trade() {
         item_node & node = rb->ring[index];
         uint64_t node_seq = node.seq.load(std::memory_order_acquire);
-        return (node_seq >= next_expected_seq);
+        return (node_seq >= next_expected_seq); //if greater then it has been lapped
     }
 
     // If lagged out, seq must be greater than next_expected_seq
@@ -60,12 +79,28 @@ namespace TradeRingBuffer {
         return (diff >= RING_SIZE);
     }
 
-    // Copies data directly into provided address
-    // Assumes that address is valid and large enough to hold Trade object
-    // Assumes that any_new_trade() was called before this to ensure new data is available
+    // // Copies data directly into provided address
+    // // Assumes that address is valid and large enough to hold Trade object
+    // // Assumes that any_new_trade() was called before this to ensure new data is available
+    // void trade_ring_buffer::get_trade(void * address) {
+    //     item_node & node = rb->ring[index];
+    //     std::memcpy(address, &node.curr_trade, sizeof(matching_engine::Trade));
+    //     update_index_and_seq();
+    // }
+
+    // rewrote this & addTrade to ensure that we don't have torn reads, and that the data is safe to read before we copy it
     void trade_ring_buffer::get_trade(void * address) {
         item_node & node = rb->ring[index];
-        std::memcpy(address, &node.curr_trade, sizeof(matching_engine::Trade));
+        uint64_t seq1, seq2;
+        do {
+            seq1 = node.seq.load(std::memory_order_acquire);
+            if (seq1 & 1) continue; // Spin if producer is currently writing
+            
+            std::memcpy(address, &node.curr_trade, sizeof(matching_engine::Trade));
+            std::atomic_thread_fence(std::memory_order_acquire);
+            seq2 = node.seq.load(std::memory_order_acquire);
+        } while (seq1 != seq2); // Retry if torn read detected
+        
         update_index_and_seq();
     }
 

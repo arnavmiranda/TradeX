@@ -8,16 +8,34 @@
 
 namespace oms {
 
-OrderManagementSystem::OrderManagementSystem(matching_engine::MatchingEngineDispatcher* eng, size_t capacity) : incoming_orders(capacity), engine(eng) {
+OrderManagementSystem::OrderManagementSystem(matching_engine::MatchingEngineDispatcher* eng, size_t capacity) 
+        : incoming_orders(capacity)
+        , engine(eng), shared_memory_ptr(nullptr)
+        , next_oms_order_id(1) 
+{
     int shm_fd = shm_open("/oms_market_data", O_RDONLY, 0666);
     if (shm_fd != -1) {
-        shared_memory_ptr = (shared_data::MarketState*)mmap(NULL, sizeof(shared_data::MarketState), PROT_READ, MAP_SHARED, shm_fd, 0);
+        void* ptr = mmap(NULL, sizeof(shared_data::MarketState), PROT_READ, MAP_SHARED, shm_fd, 0);
+        
+        //Handle MAP_FAILED so it doesn't bypass shutdown checks
+        if (ptr == MAP_FAILED) {
+            shared_memory_ptr = nullptr;
+        } else {
+            shared_memory_ptr = static_cast<shared_data::MarketState*>(ptr);
+        }
+        ::close(shm_fd);
     }
     for(int i = 0; i < GROUP_COUNT; i++) {
         trade_consumers.push_back(new TradeRingBuffer::trade_ring_buffer(false, i));
     }
     uint64_t boot_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     next_oms_order_id.store(boot_timestamp, std::memory_order_relaxed);
+
+    //initialize to -1 to indicate that no symbol is loaded for that hash
+    //otherwise garbage value gets routed for invalid numbers and eventually leads to segfaults in the matching engine
+    for(int i = 0; i < 880000; i++) {
+        symbolLookupTable[i] = -1;
+    }
 
     //symbolLookupTable[34316] = 1;   //for testing AAPL orders
     std::vector<SymbolInfo> symbol_data = loadSymbolCSV("data/symbols.csv");
@@ -86,6 +104,11 @@ void OrderManagementSystem::listenForClientOrder() {
         if(incoming_orders.pop(new_order)) {
             
             new_order.symbol_id = find_id(new_order.symbol);
+
+            //drop invalid symbol
+            if (new_order.symbol_id == -1) {
+                continue; 
+            }
             //ICEBERG
             if (new_order.execution_type == ClientOrderType::ICEBERG) {
                 //std::cout<<"OMS recieved iceberg order"<<new_order.client_order_id<<"\n";
@@ -200,6 +223,7 @@ void OrderManagementSystem::checkAndTriggerSL(uint32_t sym_id, uint64_t current_
         engine_ord.trader_id = triggered_client_ord.trader_id;
         engine_ord.type = triggered_client_ord.type;
         engine_ord.quantity = triggered_client_ord.quantity;
+        engine_ord.execution_type = matching_engine::OrderExecutionType::LIMIT;
 
         //send the order to matching engine as limit order
         sendToEngine(engine_ord);
@@ -223,6 +247,7 @@ void OrderManagementSystem::checkAndTriggerSL(uint32_t sym_id, uint64_t current_
         engine_ord.trader_id = triggered_client.trader_id;
         engine_ord.type = triggered_client.type;
         engine_ord.quantity = triggered_client.quantity;
+        engine_ord.execution_type = matching_engine::OrderExecutionType::LIMIT;
 
         //send the order to matching engine as limit order
         sendToEngine(engine_ord);
@@ -272,7 +297,9 @@ void OrderManagementSystem::send_slice(uint64_t parent_id) {
     child_order.quantity = slice_qty;
     child_order.type = parent.type;
     child_order.trader_id = parent.trader_id;
-              
+    //idk why this wasnt there before but im adding it:
+    child_order.timestamp = getCurrentTimestamp();
+    
     engine->dispatch_order(child_order);
     //std::cout<<"One slice sent\n";
 }

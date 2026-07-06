@@ -62,7 +62,7 @@ namespace TradeProcessor{
         TradeRingBuffer::trade_ring_buffer trBuffer;
         spsc_queue rb_write;
         spsc_queue rb_persist;
-        std::array<int, mem_regions> fdArray;
+        std::array<int, mem_regions> fdArray{};
 
     public:
         TradeProcessor(std::string fileName_, int id):

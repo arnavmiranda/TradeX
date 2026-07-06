@@ -322,6 +322,7 @@ class OrderBook{
 
         bool modifyQuantity(uint64_t price, uint32_t new_qty) {
             int idx = priceToIndex(price);
+            if(idx < 0 || (size_t)idx >= PRICE_LEVELS) [[unlikely]] return false;
             if(price_levels[idx].isEmpty()) [[unlikely]] return false;
             price_levels[idx].gethead()->order.quantity = new_qty;
             return true;
@@ -348,33 +349,68 @@ class OrderBook{
 // c) dynamically shard the order books into groups based on the current load, and reassign them as needed to balance the load across groups.
 // d) This would involve monitoring the number of orders and trades per symbol and adjusting the group assignments accordingly.
 
-//each symbol has its own order book
+// //each symbol has its own order book
+// class OrderBookManager {
+// private:
+//     //using pointers of order books because we could construct them out of order and want to call resize
+//     std::vector<std::unique_ptr<OrderBook>> books;
+//     size_t max_books;
+
+// public:
+//     OrderBookManager(size_t number_of_books) : max_books(number_of_books) {
+//         books.resize(max_books);
+//     }
+
+//     OrderBook& get(uint32_t symbol_id) {
+//         if(symbol_id >= max_books || !books[symbol_id]) [[unlikely]]{
+//             throw std::out_of_range("Symbol ID exceeds the number of symbols managed.");
+//         }
+//         return *books[symbol_id];
+//     }
+
+//     OrderBook& addBook(uint32_t symbol_id, size_t poolSize, uint64_t lower_price, uint64_t upper_price) {
+//         if(symbol_id >= max_books) [[unlikely]]{
+//             throw std::out_of_range("Symbol ID exceeds the number of symbols managed.");
+//         }
+//         books[symbol_id] = std::make_unique<OrderBook>(poolSize, lower_price, upper_price);
+//         return *books[symbol_id];
+//     }
+
+//     ~OrderBookManager() = default;
+// };
+
 class OrderBookManager {
 private:
-    std::vector<OrderBook> books;
+    // Store pointers so the objects themselves never move in memory
+    std::vector<std::unique_ptr<OrderBook>> books;
     size_t max_books;
 
 public:
     OrderBookManager(size_t number_of_books) : max_books(number_of_books) {
-        books.reserve(max_books);
+        // resize() works perfectly here because unique_ptr default-constructs to nullptr
+        books.resize(max_books);
     }
 
     OrderBook& get(uint32_t symbol_id) {
-        if(symbol_id >= max_books) [[unlikely]]{
-            throw std::out_of_range("Symbol ID exceeds the number of symbols managed.");
+        if(symbol_id >= max_books || !books[symbol_id]) [[unlikely]]{
+            throw std::out_of_range("Symbol ID exceeds limits or book not initialized.");
         }
-        return books[symbol_id];
+        return *books[symbol_id];
     }
 
     OrderBook& addBook(uint32_t symbol_id, size_t poolSize, uint64_t lower_price, uint64_t upper_price) {
         if(symbol_id >= max_books) [[unlikely]]{
             throw std::out_of_range("Symbol ID exceeds the number of symbols managed.");
         }
-        books.emplace_back(poolSize, lower_price, upper_price);
-        return books.back();
+        // Allocate the book on the heap so its memory address is permanently fixed
+        books[symbol_id] = std::make_unique<OrderBook>(poolSize, lower_price, upper_price);
+        return *books[symbol_id];
     }
 
     ~OrderBookManager() = default;
 };
+
+
+
 }
 #endif

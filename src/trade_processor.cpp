@@ -1,5 +1,5 @@
 #include "trade_processor.h"
-
+#include <emmintrin.h>
 
 
 
@@ -34,15 +34,30 @@ namespace TradeProcessor{
                 exit(-1);
             }
             fdArray[i] = fd;
-            ftruncate(fd, fileSize);//increase file size
-            uint8_t* mmap_ptr = static_cast<uint8_t *>(mmap(nullptr, fileSize, PROT_WRITE, MAP_SHARED, fd, 0));
+
+            //replaced ftruncate with posix_fallocate to ensure that the file is actually allocated on disk
+            // ftruncate(fd, fileSize);//increase file size
+
+            if (posix_fallocate(fd, 0, fileSize) != 0) {
+                perror("posix_fallocate failed");
+                exit(-1);
+            }
+
+            // uint8_t* mmap_ptr = static_cast<uint8_t *>(mmap(nullptr, fileSize, PROT_WRITE, MAP_SHARED, fd, 0));
+
+            //using MAP_POPULATE to pre-fault the pages into memory, reducing page faults during actual writes
+            uint8_t* mmap_ptr = static_cast<uint8_t *>(mmap(nullptr, fileSize, 
+                                                PROT_READ | PROT_WRITE, 
+                                                MAP_SHARED | MAP_POPULATE, fd, 0));
+            
             if (mmap_ptr == MAP_FAILED)
             {
                 perror("Error in initialization");
                 exit(-1);
                 // error in mmap, based on errno, handle
             }
-            madvise(mmap_ptr, fileSize, MADV_WILLNEED);
+            //changed it to sequential because it is.
+            madvise(mmap_ptr, fileSize, MADV_SEQUENTIAL);
             give_region(mmap_ptr);
         }
     }
@@ -82,11 +97,10 @@ namespace TradeProcessor{
         uint8_t* mem_region = nullptr;
 
         int trade_counter{};
-        int region_claims{};
-        int region_gaves{};
+
         while(trade_counter < maxTradesPerTP){ //add in proper 
             while(!trBuffer.any_new_trade()){ // potential fix and backoff?
-
+                _mm_pause(); //for now lets go with hardware pause
             }
             if (mem_region == nullptr)
             {
@@ -133,6 +147,7 @@ namespace TradeProcessor{
             {
                 if (!rb_persist.get_region(mem_region)) // claim new region for persistence
                 {
+                    _mm_pause(); // lets go with hardware pause here as well
                     continue;
                 }
             }
@@ -159,8 +174,24 @@ namespace TradeProcessor{
         }
 
         //this should be handled while closing the ring buffers add something to close the file descriptors as well
-        munmap(mmapPtr, fileSize);
+        // munmap(mmapPtr, fileSize);
         
+        //mmap is uninitialized here, also munmap only does it on that particular memory region
+
+        uint8_t* cleanup_region = nullptr;
+        // Since persistence puts regions back into rb_write, drain rb_write to clean up
+        while (rb_write.get_region(cleanup_region)) {
+            munmap(cleanup_region, fileSize);
+        }
+
+        // Close file descriptors
+        for (int fd : fdArray) {
+            if (fd != -1 && fd != 0) {
+                close(fd);
+            }
+        }
+
+
         auto tend = std::chrono::steady_clock::now();
         persistenceDuration = std::chrono::duration_cast<std::chrono::microseconds>(tend - tstart).count();
     }

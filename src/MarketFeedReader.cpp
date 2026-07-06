@@ -149,8 +149,10 @@ void MarketFeedReader::sendThread()
     init_batch(batch, 64);
     client_len = sizeof(client);
     connect_ = accept(sockfd_tcp, (struct sockaddr*) &client, (unsigned int*)&client_len);
-    // int flags = fcntl(connect_, F_GETFL, 0);
-    // fcntl(connect_, F_SETFL, flags | O_NONBLOCK);
+    int flags = fcntl(connect_, F_GETFL, 0);
+    fcntl(connect_, F_SETFL, flags | O_NONBLOCK);
+
+    
     if (connect_ < 0)
     {
         perror("Error in connecting to retransmitter");
@@ -224,10 +226,10 @@ void MarketFeedReader::sendThread()
         while (sent_total < (size_t)tcp_offset)
         {
             ssize_t n = send(connect_, batch->tcp_buffer + sent_total, tcp_offset - sent_total, MSG_NOSIGNAL);
-            if (n > 0) {
+            if (n >= 0) {
                 sent_total += n;
             } else {
-                if (errno == EINTR || errno == EAGAIN) continue;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
                 perror("tcp send");
                 goto done_sending;
             }
