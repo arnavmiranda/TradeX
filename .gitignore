@@ -5,3 +5,8 @@ file_output/*
 data/*
 data/symbols.csv
 bots/symbols.csv
+pipeline_server
+live_tp
+live_mfr
+remote_bots
+test_mfr
