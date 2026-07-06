@@ -114,43 +114,33 @@ void MarketFeedReader::readThread()
 {
     int trade_counter{};
     MarketDataMessage in;
-    int rotation_lim{0};
-    bool next_trb{false};
+    
     while (true)
     {
-        //multiplexer
+        if (flag == false)
+        {
+            goto end;
+        }
+
+        // Multiplexer: Check every ring buffer sequentially
         for (int i = 0; i < TradeRingBuffer::total_ring_buffer_count; i++)
         {
-            if (trb_vec[i]->lagged_out())
+            // If the buffer has trades, process up to 10 of them at a time 
+            // to ensure fair rotation among all groups without getting stuck.
+            int reads = 0;
+            while (trb_vec[i]->any_new_trade() && reads < 10)
             {
-                // deal with lag
+                in = formatMarketData(trb_vec[i]->get_trade());
+                queue.push(&in);
+                trade_counter++;
+                reads++;
             }
-            while (!trb_vec[i]->any_new_trade())
-            {
-                if (++rotation_lim == 10) // rotate if didnt get any trade 10 times
-                {
-                    rotation_lim = 0;
-                    next_trb = true;
-                }
-                if (flag == false)
-                {
-                    goto end;
-                }
-                // spinning
-            }
-            if (next_trb)
-            {
-                continue;
-            }
-            in = formatMarketData(trb_vec[i]->get_trade());
-            queue.push(&in);
-            trade_counter++;
-                
         }
     }
-    end:
+    
+end:
     done.store(true, std::memory_order_release);
-    std:: cout << "reader done \n";
+    std::cout << "reader done \n";
 }
 
 void MarketFeedReader::sendThread()

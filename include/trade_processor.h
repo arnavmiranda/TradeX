@@ -21,7 +21,7 @@
 #include "trade_ring_buffer.h"
 
 
-std::atomic<bool> marketOpen{true};
+inline std::atomic<bool> marketOpen{true};
 static int writerDuration;
 static int persistenceDuration;
 
@@ -30,7 +30,7 @@ namespace TradeProcessor{
     constexpr size_t queue_buffer_size{1 << 20}; //arbitrary size
     const size_t mem_regions(32);
     static int fileNumber{1};
-    constexpr static int max_trades_in_a_day{100'000'000};
+    constexpr static int max_trades_in_a_day{100'000};
     constexpr static int maxTradesPerTP{max_trades_in_a_day / TradeRingBuffer::total_ring_buffer_count}; //change later this constant feels kinda wonky and disconnected with trb count (look at usage everywhere)
     constexpr static int64_t fileSize{maxTradesPerTP * sizeof(matching_engine::Trade) / mem_regions}; //Calculating the max file size, depending that all trades never exceed this amount
     const std::string path{"./file_output/"};

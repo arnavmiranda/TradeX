@@ -1,4 +1,7 @@
 .vscode*
 *.dSYM/*
 file_output/*
+!file_output/.gitkeep
 data/*
+data/symbols.csv
+bots/symbols.csv
