@@ -398,6 +398,7 @@ public:
         return *books[symbol_id];
     }
 
+
     OrderBook& addBook(uint32_t symbol_id, size_t poolSize, uint64_t lower_price, uint64_t upper_price) {
         if(symbol_id >= max_books) [[unlikely]]{
             throw std::out_of_range("Symbol ID exceeds the number of symbols managed.");

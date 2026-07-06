@@ -145,16 +145,14 @@ public:
 
         OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
         //if bid cannot be matched, add to order book
-        if(book.bestsellprice() > order.price) [[likely]] {
+        if(book.getTotalSellQty() == 0 || book.bestsellprice() > order.price) [[likely]] {
             book.addBuyOrder(order);
-            //std::cout<<"Order"<<order.order_id<<"added to order book\n";
             return;
         }
         //otherwise match with the best sell order until either the buy order is fully filled or there are no more sell orders at or below the buy price
         uint64_t best_price = book.bestsellprice();
-        while(order.quantity > 0 && best_price <= order.price) {
-            uint32_t price_index = book.priceToIndex(best_price);
-            
+        while(order.quantity > 0 && book.getTotalSellQty() > 0 && best_price <= order.price) {
+            uint32_t price_index = book.priceToIndex(best_price);        
             if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {
                 //if the sell order has more quantity than the buy order, execute the trade and update the sell order's quantity
                 publish_trade({
@@ -199,14 +197,14 @@ public:
 
     void process_sell(Order order) {
         OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
-        if(book.bestbuyprice() < order.price) [[likely]] {
+        if(book.getTotalBuyQty() == 0 || book.bestbuyprice() < order.price) [[likely]] {
             book.addSellOrder(order);
             //std::cout<<"Order"<<order.order_id<<"added to order book\n";
             return;
         }
 
         uint64_t best_price = book.bestbuyprice();
-        while(order.quantity > 0 && best_price >= order.price) {
+        while(order.quantity > 0 && book.getTotalBuyQty() > 0 && best_price >= order.price) {
             uint64_t price_index = book.priceToIndex(best_price);
 
             if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {
@@ -253,8 +251,12 @@ public:
 
     void process_market_buy(Order order) {
         OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
+        
+        // Guard against empty books immediately
+        if (book.getTotalSellQty() == 0) [[unlikely]] return;
+
         uint64_t best_price = book.bestsellprice();
-        while(order.quantity > 0 && book.getTotalSellQty() > 0) {
+        while(order.quantity > 0 && book.getTotalSellQty() > 0 && book.isPriceValid(best_price)) {
             uint32_t price_index = book.priceToIndex(best_price);
             
             if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {
@@ -296,8 +298,12 @@ public:
 
     void process_market_sell(Order order) {
         OrderBook &book = bookmanager->get((order.symbol_id) & SYMBOL_MASK);
+
+        // Guard against empty books immediately 
+        if (book.getTotalBuyQty() == 0) [[unlikely]] return;
+
         uint64_t best_price = book.bestbuyprice();
-        while(order.quantity > 0 && best_price && book.getTotalBuyQty() > 0) {
+        while(order.quantity > 0 && book.getTotalBuyQty() > 0 && book.isPriceValid(best_price)) {
             uint32_t price_index = book.priceToIndex(best_price);
             
             if(book.getpricelevels(price_index).gethead()->order.quantity > order.quantity) {

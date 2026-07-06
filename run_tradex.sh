@@ -3,7 +3,10 @@
 echo "Starting TradeX Distributed Environment..."
 
 # 1. Setup Environment
+# Wipe out old binary trade logs to avoid stale parsing bugs
+rm -rf file_output/*
 mkdir -p file_output
+
 # Attempt to add the multicast route (fails silently if it already exists)
 sudo ip route add 224.0.0.0/4 dev lo 2>/dev/null || true
 
