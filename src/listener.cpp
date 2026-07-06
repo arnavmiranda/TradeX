@@ -180,8 +180,8 @@ namespace Client{
             // put it in smth
             if (received == 0)
             {
-                 done.store(true, std::memory_order_release);
+                done.store(true, std::memory_order_release);
             }
         }
-    }
+    } 
 }

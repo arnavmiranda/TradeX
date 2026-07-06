@@ -47,7 +47,7 @@ namespace Client{
 
 
     constexpr size_t queue_buffer_size{1 << 20}; // arbitrary size
-
+ 
     class spsc_queue
     {
     private:

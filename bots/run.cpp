@@ -36,7 +36,7 @@ struct ClientOrderWire {
     uint64_t trigger_price;
     char symbol[8];
     uint32_t symbol_id;
-    uint64_t trader_id;
+    uint64_t trader_id;  
     matching_engine::OrderType type;
     uint32_t quantity;
     uint32_t display_quantity;

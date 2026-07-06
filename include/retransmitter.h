@@ -46,7 +46,7 @@ class Retransmitter{
         int sockfd_tcp_recv;
         int sockfd_tcp_send;
         struct sockaddr_in addr_udp, addr_tcp;
-        struct sockaddr_in servaddr, client;
+        struct sockaddr_in servaddr, client; 
         socklen_t client_len;
         int connect_;
         int addrlen_tcp;

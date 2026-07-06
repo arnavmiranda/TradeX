@@ -25,7 +25,7 @@ enum class ClientOrderType {
 struct ClientOrderWire {
     uint64_t client_order_id;
     uint64_t price;
-    uint64_t trigger_price;
+    uint64_t trigger_price; 
     char symbol[8];
     uint32_t symbol_id;
     uint64_t trader_id;

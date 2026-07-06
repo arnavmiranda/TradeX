@@ -49,8 +49,6 @@ Retransmitter::Retransmitter(std::atomic_bool& flag ) : flag(flag), buffer(new M
         exit(EXIT_FAILURE);
     }
 
-    
-
     // // setting up listening on udp multicast
     // addr_udp.sin_port = htons(5000);
     // addr_udp.sin_family = AF_INET;
