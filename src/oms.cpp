@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 #include <algorithm>
+#include <mutex>
 #include "market_state.h"
 #include "symbol_loader.h"
 
@@ -10,7 +11,8 @@ namespace oms {
 
 OrderManagementSystem::OrderManagementSystem(matching_engine::MatchingEngineDispatcher* eng, size_t capacity) 
         : incoming_orders(capacity)
-        , engine(eng), shared_memory_ptr(nullptr)
+        , engine(eng)
+        , shared_memory_ptr(nullptr)
         , next_oms_order_id(1) 
 {
     int shm_fd = shm_open("/oms_market_data", O_RDONLY, 0666);
@@ -49,6 +51,11 @@ OrderManagementSystem::~OrderManagementSystem() {
     for(auto* t : trade_consumers) {
         delete t;
     }
+
+    if (shared_memory_ptr != nullptr && shared_memory_ptr != MAP_FAILED) {
+        munmap(shared_memory_ptr, sizeof(shared_data::MarketState));
+        shared_memory_ptr = nullptr;
+    }
 }
 
 uint64_t OrderManagementSystem::getCurrentTimestamp() {
@@ -86,9 +93,7 @@ void OrderManagementSystem::stop() {
 }
 
 bool OrderManagementSystem::enqueueClientOrder(const ClientOrder& order) {
-    #ifdef EXPO_MODE
     std::lock_guard<std::mutex> lock(enqueue_mutex);
-    #endif // EXPO_MODE
     return incoming_orders.push(order);
 }
 

@@ -69,8 +69,8 @@ int main(int argc, char** argv) {
 
     std::cout << "Stopping pipeline server...\n";
     server.stop();
-    engine.terminate();
     oms_system.stop();
+    engine.terminate();
 
     if (engine_thread.joinable()) {
         engine_thread.join();

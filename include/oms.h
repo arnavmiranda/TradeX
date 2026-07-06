@@ -72,6 +72,8 @@ private:
     int find_id(const std::string& symbol);
     int find_hash(const std::string& symbol);
 
+    std::mutex enqueue_mutex; // Mutex to protect the incoming_orders queue
+
     uint64_t last_seen_price[MAX_SYMBOLS] = {0};
 
     struct MarketData { uint64_t last_price; };    

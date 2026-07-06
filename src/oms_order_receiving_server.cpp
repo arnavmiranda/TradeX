@@ -44,9 +44,7 @@ void OrderReceivingServer::stop() {
 		std::lock_guard<std::mutex> lock(client_mutex);
 		for (int client_fd : active_client_fds) {
 			::shutdown(client_fd, SHUT_RDWR);
-			::close(client_fd);
 		}
-		active_client_fds.clear();
 	}
 
 	for (auto& thread : client_threads) {
