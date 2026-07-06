@@ -266,6 +266,7 @@ void OrderManagementSystem::send_slice(uint64_t parent_id) {
     InternalOrder child_order;
     child_order.order_id = child_id;
     child_order.client_order_id = child_id;
+    child_order.execution_type = matching_engine::OrderExecutionType::LIMIT;
     child_order.symbol_id = parent.symbol_id;
     child_order.price = parent.price;
     child_order.quantity = slice_qty;
@@ -277,23 +278,34 @@ void OrderManagementSystem::send_slice(uint64_t parent_id) {
 }
 
 void OrderManagementSystem::check_fill(const matching_engine::Trade& trade) {
+    // If neither side is an iceberg, ignore it
     if (!(trade.buy_order_id & ICEBERG_BIT) && !(trade.sell_order_id & ICEBERG_BIT)) return;
-    // Find if the buy or sell order was ours
-    uint64_t our_child_id = 0;
-    if(child_to_parent.count(trade.buy_order_id)) our_child_id = trade.buy_order_id;
-    else if(child_to_parent.count(trade.sell_order_id)) our_child_id = trade.sell_order_id;
-    else return; // Not our order
 
-    uint64_t parent_id = child_to_parent[our_child_id];
-    ClientOrder& parent = active_icebergs[parent_id];
+    // lambda to process one side of the trade
+    auto process_iceberg_leg = [&](uint64_t child_id, uint32_t traded_qty) {
+        if (child_to_parent.count(child_id)) {
+            uint64_t parent_id = child_to_parent[child_id];
+            ClientOrder& parent = active_icebergs[parent_id];
+            
+            parent.filled_quantity += traded_qty;
+            
+            bool slice_filled = (parent.filled_quantity % parent.display_quantity == 0) || 
+                                (parent.filled_quantity == parent.quantity);
 
-    parent.filled_quantity += trade.quantity;
+            if(slice_filled) {
+                child_to_parent.erase(child_id);
+                send_slice(parent_id);
+            }
+        }
+    };
+
+    // Process both legs independently!
+    if (trade.buy_order_id & ICEBERG_BIT) {
+        process_iceberg_leg(trade.buy_order_id, trade.quantity);
+    }
     
-    bool slice_filled = (parent.filled_quantity % parent.display_quantity == 0) || (parent.filled_quantity == parent.quantity);
-
-    if(slice_filled) {
-        child_to_parent.erase(our_child_id);
-        send_slice(parent_id);
+    if (trade.sell_order_id & ICEBERG_BIT) {
+        process_iceberg_leg(trade.sell_order_id, trade.quantity);
     }
 }
 } 

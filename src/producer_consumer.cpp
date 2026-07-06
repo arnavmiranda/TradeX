@@ -170,6 +170,7 @@ public:
 
                 uint32_t new_quantity = book.getpricelevels(price_index).gethead()->order.quantity - order.quantity;
                 book.modifyQuantity(best_price, new_quantity);
+                book.decreaseTotalSellQty(order.quantity);
                 return;
                 
             } else { //if the sell order has less than or equal quantity than the buy order, execute the trade and remove the sell order from the order book
@@ -188,6 +189,7 @@ public:
                 order.quantity -= traded_quantity;
                 book.removeSellOrder(best_price);
                 best_price = book.bestsellprice();
+                book.decreaseTotalSellQty(traded_quantity);
             }
         }
         if(order.quantity > 0) { //what remains could not be matched, so its stored in the order book for future matching
@@ -223,6 +225,7 @@ public:
             
                 uint32_t new_quantity = book.getpricelevels(price_index).gethead()->order.quantity - order.quantity;
                 book.modifyQuantity(best_price, new_quantity);
+                book.decreaseTotalBuyQty(order.quantity);
                 return;
 
             } else {
@@ -241,6 +244,7 @@ public:
                 order.quantity -= traded_quantity;
                 book.removeBuyOrder(best_price);
                 best_price = book.bestbuyprice();
+                book.decreaseTotalBuyQty(traded_quantity);
             }
         }
         if(order.quantity > 0) {
@@ -269,6 +273,7 @@ public:
 
                 uint32_t new_quantity = book.getpricelevels(price_index).gethead()->order.quantity - order.quantity;
                 book.modifyQuantity(best_price, new_quantity);
+                book.decreaseTotalSellQty(order.quantity);
                 return;
                 
             } else {
@@ -311,6 +316,7 @@ public:
 
                 uint32_t new_quantity = book.getpricelevels(price_index).gethead()->order.quantity - order.quantity;
                 book.modifyQuantity(best_price, new_quantity);
+                book.decreaseTotalBuyQty(order.quantity);
                 return;
                 
             } else {
@@ -424,9 +430,10 @@ public:
         }
     }
 
-    void start_dispatcher() {
-        // This would receive orders from EMS via TCP socket
-    }
+    // bypassed by oms
+    // void start_dispatcher() {
+    //     // This would receive orders from EMS via TCP socket
+    // }
 
     void terminate() {
         terminate_flag.store(true, std::memory_order_release);
@@ -443,33 +450,35 @@ public:
         return is_all_groups_running && is_running_flag.load(std::memory_order_acquire);
     }
 
-    // Used for placing orders
+    // Called by the OMS thread to route an order to the appropriate group.
     //note that this is a separate thread from the group processors, so the spinlock doesn't affect the functionality
-    //again this requires us to have a way to accept and processing incoming orders (start_dispatcher())
     void dispatch_order(const Order& order) {
 
         int group = (order.symbol_id >> SYMBOL_BITS) % GROUP_COUNT;
         if(group >= groups.size()) group = 0;
         //printf("Order %ld recieved\n",order.order_id);
-        while(!groups[group]->enqueue_order(order)); //the enqueue returns false if the queue is full, in which case it keeps trying until it succeeds and returns true and exits.
+        // while(!groups[group]->enqueue_order(order)); //the enqueue returns false if the queue is full, in which case it keeps trying until it succeeds and returns true and exits.
         
+        while (!groups[group]->enqueue_order(order)) {
+            std::this_thread::yield();
+        }
     }
 
     void start() { // Dispatcher thread
-        std::thread dispatcher_thread(&MatchingEngineDispatcher::start_dispatcher, this);
+        // std::thread dispatcher_thread(&MatchingEngineDispatcher::start_dispatcher, this);
 
         std::vector<std::thread> group_threads;
         for (int i = 0; i < GROUP_COUNT; ++i) {
             group_threads.emplace_back(&GroupProcessor::start_group_thread, groups[i].get());
         }
 
-        std::cout << "Dispatcher and group threads started" << std::endl;
+        // std::cout << "Dispatcher and group threads started" << std::endl;
         is_running_flag.store(true, std::memory_order_release);
         
-        dispatcher_thread.join();
+        // dispatcher_thread.join();
         for (auto& t : group_threads) t.join();
 
-        std::cout << "Dispatcher and group threads finished" << std::endl;
+        // std::cout << "Dispatcher and group threads finished" << std::endl;
 
     }
 
@@ -477,12 +486,6 @@ public:
     // This can be extended to support dynamic addition of order books as well.
     void initialize_engine(uint64_t* lower_limits, uint64_t* upper_limits)
     {
-        // removed this because this was for market orders
-
-        // for (uint32_t symbol_id = 0; symbol_id < TOTAL_SYMBOLS; symbol_id++) {
-        //     lower_limits_cache[symbol_id] = lower_limits[symbol_id];
-        //     upper_limits_cache[symbol_id] = upper_limits[symbol_id];
-        // }
 
         int i = 0;
         for(auto &group : groups) {
@@ -495,14 +498,6 @@ public:
             i++;
         }
     }
-    //again, only used with market orders, so removed
-    // uint64_t getUpperLimit(uint32_t symbol_id) const {
-    //     return upper_limits_cache[symbol_id];
-    // }
-
-    // uint64_t getLowerLimit(uint32_t symbol_id) const {
-    //     return lower_limits_cache[symbol_id];
-    // }
 
     ~MatchingEngineDispatcher() {
         munmap(shared_ltp_ptr, sizeof(shared_data::MarketState));

@@ -330,6 +330,9 @@ class OrderBook{
         uint64_t getTotalBuyQty() const { return total_buy_qty; }
         uint64_t getTotalSellQty() const { return total_sell_qty; }
         uint64_t getTotalQty() const { return total_buy_qty + total_sell_qty; }
+
+        void decreaseTotalBuyQty(uint32_t qty) { total_buy_qty -= qty; };
+        void decreaseTotalSellQty(uint32_t qty) { total_sell_qty -= qty; };
         
         inline bool isPriceValid(uint64_t price) const {
             return price >= lower_limit && price <= upper_limit;
