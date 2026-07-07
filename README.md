@@ -1,8 +1,8 @@
-# TradeX: Ultra-Low Latency Distributed Matching Engine
+# TradeX: Low Latency Matching Engine
 
 ## Overview
 
-TradeX is a distributed, ultra-low latency cryptocurrency/equities matching engine engineered for High-Frequency Trading (HFT) environments. Designed to minimize kernel intervention and eliminate thread contention, TradeX relies entirely on lock-free data structures, zero-copy architecture, POSIX shared memory, and batched UDP multicast.
+TradeX is a ultra-low latency cryptocurrency/equities matching engine engineered for High-Frequency Trading (HFT) environments. Designed to minimize kernel intervention and eliminate thread contention, TradeX relies entirely on lock-free data structures, zero-copy architecture, POSIX shared memory, and batched UDP multicast.
 
 By leveraging strict `std::memory_order` semantics, dedicated SPSC queues, and memory-pinned data structures, TradeX achieves deterministic, microsecond-level order execution while bypassing the OS scheduler on the hot path.
 
